@@ -88,5 +88,5 @@ experiments/%/.done_finetune:
 > cd $(SRC) && $(TORCHRUN) -m main_mix ++name=$* $(EXP_$*) ++trainer.mode="train"
 
 > @echo "Finetuning phase 2 - starting from epoch 4"
-> cd $(SRC) && $(TORCHRUN) -m main_mix ++name=$* $(EXP_$*) ++trainer.mode="train" ++trainer.trainer.snapshot_html="epoch3_snapshot_html.pt" ++trainer.trainer.snapshot_bbox="epoch3_snapshot_bbox.pt" ++trainer.trainer.beit_pretrained_weights=null
+> cd $(SRC) && $(TORCHRUN) -m main_mix ++name=$* $(EXP_$*) ++trainer.mode="train" ++trainer.trainer.snapshot="epoch3_snapshot.pt" ++trainer.trainer.beit_pretrained_weights=null
 > touch $@

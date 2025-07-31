@@ -63,8 +63,7 @@ test:
 
 trainer:
   _target_: trainer.TableTrainer_MIX
-  snapshot_html: null
-  snapshot_bbox: null
+  snapshot: null
   model_weights: null
   beit_pretrained_weights: null
   freeze_beit_epoch: null

@@ -1,0 +1,15 @@
+# trainer/train/lr_scheduler_bbox/sequential_bbox.yaml
+
+_target_: utils.create_sequential_scheduler
+
+# --- SequentialLR의 파라미터 ---
+schedulers:
+  - _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    T_max: 7774720    # 32 에폭에 해당하는 총 스텝 수
+    eta_min: 1e-6
+
+  - _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    T_max: 3887360    # 16 에폭에 해당하는 총 스텝 수
+    eta_min: 1e-6
+
+milestones: [7774720]  # 32 에폭이 끝나는 스텝에서 전환

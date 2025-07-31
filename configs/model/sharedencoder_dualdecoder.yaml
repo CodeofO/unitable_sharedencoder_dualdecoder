@@ -2,7 +2,6 @@ defaults:
   - _self_
   - model/backbone: imgcnn
   - model/encoder: transformer
-  - model/decoder: transformer
 
 
 nhead: 4
@@ -15,20 +14,35 @@ backbone_downsampling_factor: 16
 
 
 model:
-  _target_: model.EncoderDecoder
+  _target_: model.sharedencoder_dualdecoder.SharedEncoder_DualDecoder
   
   d_model: ${model.d_model}
   
-
-  vocab_size_html: -1
-  vocab_size_bbox: -1
-
-  max_seq_len_html: -1
-  max_seq_len_bbox: -1
-
-  vocab_size_html: -1
-  vocab_size_bbox: -1
+  decoder_html:
+    _target_: model.components.Decoder
+    d_model: ${model.d_model}
+    nhead: ${model.nhead}
+    dropout: ${model.dropout}
+    activation: ${model.activation}
+    norm_first: ${model.norm_first}
+    nlayer: 4
+    ff_ratio: ${model.ff_ratio}
+    
+  decoder_bbox:
+    _target_: model.components.Decoder
+    d_model: ${model.d_model}
+    nhead: ${model.nhead}
+    dropout: ${model.dropout}
+    activation: ${model.activation}
+    norm_first: ${model.norm_first}
+    nlayer: 4
+    ff_ratio: ${model.ff_ratio}
   
+  vocab_size_html: -1
+  vocab_size_bbox: -1
+
+  max_seq_len: -1
+
   padding_idx: -1
 
   dropout: ${model.dropout}
