@@ -1,0 +1,8 @@
+_target_: datamodule.pubtabnet.PubTabNet
+root_dir: /table/table_structure/dataset/IX_dataset/MVP3_target_case_old_250325
+label_type: ${dataset.label_type}
+split: train
+json_html: annotations.jsonl
+transform: ${dataset.augmentation}
+cell_limit: 150
+otsl_mode: ${trainer.trainer.otsl_mode}

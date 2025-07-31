@@ -1,0 +1,9 @@
+
+_target_: datamodule.pubtabnet.PubTabNet
+root_dir: /table/table_structure/dataset/pubtabnet_505.8K_train0.8_val0.2_clean
+label_type: ${dataset.label_type}
+split: train
+json_html: annotations.jsonl
+transform: ${dataset.augmentation}
+cell_limit: 150
+otsl_mode: ${trainer.trainer.otsl_mode}

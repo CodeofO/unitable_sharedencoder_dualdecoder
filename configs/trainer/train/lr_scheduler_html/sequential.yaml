@@ -1,0 +1,16 @@
+# trainer/train/lr_scheduler_html/sequential_html.yaml
+
+_target_: src.utils.create_sequential_scheduler
+
+# --- SequentialLR의 파라미터 ---
+schedulers:
+  - _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    T_max: 11662080  # 32 에폭에 해당하는 총 스텝 수
+    eta_min: 1e-6     # 학습률 최솟값
+
+  - _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+    T_max: 5831040   # 16 에폭에 해당하는 총 스텝 수
+    eta_min: 1e-6     # 학습률 최솟값
+
+# 스케줄러를 전환할 시점 (스텝 단위)
+milestones: [11662080] # 32 에폭이 끝나는 스텝에서 전환

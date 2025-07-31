@@ -1,0 +1,8 @@
+
+_target_: datamodule.pubtabnet.PubTabNet
+root_dir: /table/table_structure/dataset/IX_DATASET/ix_dataset_200_250327
+label_type: ${dataset.label_type}
+split: train
+json_html: annotation.jsonl
+transform: ${dataset.augmentation}
+cell_limit: 150

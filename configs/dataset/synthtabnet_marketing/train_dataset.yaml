@@ -1,0 +1,7 @@
+_target_: datamodule.synthtabnet.Synthtabnet
+root_dir: /table/table_structure/dataset/SynthTabNet_fixed/marketing
+label_type: ${dataset.label_type}
+split: train
+json_html: synthetic_data_fixed.jsonl
+transform: ${dataset.augmentation}
+cell_limit: ${dataset.cell_limit}

@@ -1,0 +1,5 @@
+need_vocab: true
+type_html: html
+type_bbox: bbox
+dir_html: ${hydra:runtime.cwd}/../vocab/vocab_html.json
+dir_bbox: ${hydra:runtime.cwd}/../vocab/vocab_bbox.json

@@ -1,0 +1,5 @@
+_target_: datamodule.pubtabnet.PubTabNet
+root_dir: /table/table_structure/dataset/fintabnet_processed
+label_type: ${dataset.label_type}
+jsonl_filename: annotation.jsonl
+transform: ${dataset.augmentation}
