@@ -171,7 +171,7 @@ def main(cfg: DictConfig):
             else None
         )
     }
-    
+
     if trainer_name == "VqvaeTrainer":
         trainer = instantiate(cfg.trainer.trainer, **trainer_kwargs)
     elif trainer_name == "BeitTrainer":
@@ -187,10 +187,6 @@ def main(cfg: DictConfig):
         trainer_kwargs["vocab_bbox"] = vocab_bbox # ✅
         trainer = instantiate(cfg.trainer.trainer, **trainer_kwargs)
 
-    elif trainer_name == "TableTrainer_MIX_DualDecoder":
-        trainer_kwargs["vocab_html"] = vocab_html # ✅
-        trainer_kwargs["vocab_bbox"] = vocab_bbox # ✅
-        trainer = instantiate(cfg.trainer.trainer, **trainer_kwargs)
 
     else:
         raise ValueError(f"The provided trainer type {trainer_name} is not supported.")

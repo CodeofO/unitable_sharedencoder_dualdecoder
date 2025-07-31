@@ -28,9 +28,7 @@ from trainer.utils import (
     configure_optimizer_weight_decay,
     turn_off_beit_grad,
     turn_on_beit_grad,
-    turn_off_beit_grad_weights_freezing,
     VALID_HTML_TOKEN,
-    INVALID_CELL_TOKEN,
     VALID_BBOX_TOKEN,
 )
 import random
@@ -176,17 +174,14 @@ class TableTrainer_MIX:
         use_mix_loss: bool = False,
         otsl_mode: bool = False,
         finetune_mode: bool = False,
-        only_structure: bool = False,
     ) -> None:
         
         self.use_mix_loss = use_mix_loss
         self.otsl_mode = otsl_mode
-        self.only_structure = only_structure
         self.finetune_mode = finetune_mode
 
         print(f"✅ use mix loss : {self.use_mix_loss}")
         print(f"✅ use OTSL : {self.otsl_mode}")
-        print(f"✅ only structure : {self.only_structure}")
         
         self.device = device
         self.log = log
@@ -254,7 +249,7 @@ class TableTrainer_MIX:
     
 
     def _freeze_beit(self):
-        if self.start_epoch < self.freeze_beit_epoch and (not self.finetune_mode):
+        if self.start_epoch < self.freeze_beit_epoch:
             turn_off_beit_grad(self.model)
             self.log.info(
                 printer(
@@ -437,7 +432,7 @@ class TableTrainer_MIX:
         optim_params = configure_optimizer_weight_decay(
             self.model.module, weight_decay=train_cfg.optimizer.weight_decay)
         self.optimizer = instantiate(train_cfg.optimizer, optim_params)
-        print(f'🔥optimizer : {self.optimizer} ')
+        # print(f'🔥optimizer : {self.optimizer} ')
 
         # ================= LR Scheduler (Warmup 포함) =================
         # 웜업(3 에포크) + s1(29 에포크) + s2(16 에포크) = 총 48 에포크
@@ -481,7 +476,7 @@ class TableTrainer_MIX:
         best_loss = float("inf")
         self.model.train()
 
-        if (self.freeze_beit_epoch) and (self.start_epoch < self.freeze_beit_epoch) and not (self.finetune_mode):
+        if (self.freeze_beit_epoch) and (self.start_epoch < self.freeze_beit_epoch):
             max_epoch = self.freeze_beit_epoch
         else:
             max_epoch = train_cfg.epochs
@@ -586,8 +581,7 @@ class TableTrainer_MIX:
                               vocab_bbox=self.vocab_bbox, 
                               obj=obj,
                               use_mix_loss = self.use_mix_loss,
-                              otsl_mode = self.otsl_mode,
-                              only_structure= self.only_structure)
+                              otsl_mode = self.otsl_mode)
 
             with torch.no_grad():
                 loss, _, time_dict = batch.inference_shared(
@@ -743,12 +737,11 @@ class TableTrainer_MIX:
         filename_html = Path(self.exp_dir) / "model" / "best_html.pt"
         torch.save(self.model_html.module.state_dict(), filename_html)
 
-        if not self.only_structure:
-            filename_bbox = Path(self.exp_dir) / "model" / f"epoch{epoch}_model_bbox.pt"
-            torch.save(self.model_bbox.module.state_dict(), filename_bbox)
-            self.log.info(printer(self.device, f"Saving model to {filename_bbox}"))
-            filename_bbox = Path(self.exp_dir) / "model" / "best_bbox.pt"
-            torch.save(self.model_bbox.module.state_dict(), filename_bbox)
+        filename_bbox = Path(self.exp_dir) / "model" / f"epoch{epoch}_model_bbox.pt"
+        torch.save(self.model_bbox.module.state_dict(), filename_bbox)
+        self.log.info(printer(self.device, f"Saving model to {filename_bbox}"))
+        filename_bbox = Path(self.exp_dir) / "model" / "best_bbox.pt"
+        torch.save(self.model_bbox.module.state_dict(), filename_bbox)
 
 
 
@@ -792,19 +785,18 @@ class TableTrainer_MIX:
 
 
         # BBOX
-        if not self.only_structure:
-            state_info_bbox = {
-                "EPOCH": epoch + 1,
-                "STEP": self.global_step,
-                "OPTIMIZER": self.optimizer_bbox.state_dict(),
-                "LR_SCHEDULER": self.lr_scheduler_bbox.state_dict(),
-                "MODEL": self.model_bbox.module.state_dict(),
-                "LOSS": best_loss,
-            }
+        state_info_bbox = {
+            "EPOCH": epoch + 1,
+            "STEP": self.global_step,
+            "OPTIMIZER": self.optimizer_bbox.state_dict(),
+            "LR_SCHEDULER": self.lr_scheduler_bbox.state_dict(),
+            "MODEL": self.model_bbox.module.state_dict(),
+            "LOSS": best_loss,
+        }
             
-            snapshot_path_bbox = Path(self.exp_dir) / "snapshot" / f"epoch{epoch}_snapshot_bbox.pt"
-            torch.save(state_info_bbox, snapshot_path_bbox)
-            self.log.info(printer(self.device, f"[BBOX] Saving snapshot to {snapshot_path_bbox}"))
+        snapshot_path_bbox = Path(self.exp_dir) / "snapshot" / f"epoch{epoch}_snapshot_bbox.pt"
+        torch.save(state_info_bbox, snapshot_path_bbox)
+        self.log.info(printer(self.device, f"[BBOX] Saving snapshot to {snapshot_path_bbox}"))
         
 
     # SNAPSHOT_KEYS = set(["EPOCH", "STEP", "OPTIMIZER", "LR_SCHEDULER", "MODEL", "LOSS"])
@@ -822,13 +814,11 @@ class TableTrainer_MIX:
         print(f'✅ snapshot_html.keys() : {snapshot_html.keys()}')
 
 
-        if not self.only_structure:
-            snapshot_bbox = torch.load(path_bbox, map_location=f"cuda:{self.device}")
-            assert SNAPSHOT_KEYS.issubset(snapshot_bbox.keys())
-            print(f'✅ snapshot_bbox.keys() : {snapshot_bbox.keys()}')
-        else:
-            snapshot_bbox = None
-
+    
+        snapshot_bbox = torch.load(path_bbox, map_location=f"cuda:{self.device}")
+        assert SNAPSHOT_KEYS.issubset(snapshot_bbox.keys())
+        print(f'✅ snapshot_bbox.keys() : {snapshot_bbox.keys()}')
+    
         return snapshot_html, snapshot_bbox
 
     def load_pretrained_beit(self, path: Path):

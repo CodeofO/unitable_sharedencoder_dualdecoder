@@ -16,6 +16,8 @@ from vocab import (
 )
 
 
+
+
 VALID_HTML_TOKEN = ["<eos>"] + HTML_TOKENS
 VALID_OTSL_TOKEN = ["<eos>"] + OTSL_TOKENS
 INVALID_CELL_TOKEN = (
@@ -29,6 +31,10 @@ VALID_BBOX_TOKEN = [
 # VALID_HTML_TOKEN : 49
 # INVALID_CELL_TOKEN : 18
 # VALID_BBOX_TOKEN : 881
+
+class Batch:
+    """Placeholder Batch class for compatibility with legacy imports."""
+    pass
 
 
 
@@ -61,7 +67,6 @@ class Batch_MIX:
         self.image_size = self.image.shape[-1]
 
         self.use_mix_loss = use_mix_loss
-        self.otsl_mode = otsl_mode
         
         if "table" in target:
             raise NotImplementedError
@@ -69,8 +74,10 @@ class Batch_MIX:
         # valid token 설정
         self.pad_idx = self.vocab_html.token_to_id("<pad>")  
         self.eos_idx = self.vocab_html.token_to_id("<eos>")
-
+        
         if otsl_mode:
+            # print(f'🔥 vocab_html : {vocab_html.get_vocab()}')
+            # print(f'🔥 vocab_bbox : {vocab_bbox.get_vocab()}')
             self.valid_html_token = [vocab_html.token_to_id(i) for i in VALID_OTSL_TOKEN]
             self.f_c_idx = self.vocab_html.token_to_id("F_C")
             self.f_c_idx_merge = None
@@ -163,22 +170,23 @@ class Batch_MIX:
         
         
         # HTML 결과 처리
-        st = time()
         out_html = outputs["html"]
         pred_html_logits = pred_token_within_range(
             out_html, white_list=self.valid_html_token
         ).permute(0, 2, 1)
         pred["html"] = pred_html_logits
+        # print(f'🔥 pred_html_logits : {pred_html_logits.shape}')
+        # print(f'🔥 out_html : {out_html}')
+        # print(f'🔥 self.html_tgt : {self.html_tgt}')
+        # print(f'🔥 self.valid_html_token : {self.valid_html_token}')
         loss["html"] = criterion_html(pred_html_logits, self.html_tgt)
-        time_inf_html = time() - st
         
         # BBOX 결과 처리
-        st = time()
         out_bbox = outputs["bbox"]
         pred_bbox_logits = out_bbox.permute(0, 2, 1)
         pred["bbox"] = pred_bbox_logits
         loss["bbox"] = criterion_bbox(pred_bbox_logits, self.bbox_tgt)
-        time_inf_bbox = time() - st
+        time_inf = time() - st
         
         # Mix loss 계산
         st = time()
@@ -187,8 +195,7 @@ class Batch_MIX:
         time_inf_combine = time() - st
         
         time_dict = {
-            "time_inf_html": time_inf_html,
-            "time_inf_bbox": time_inf_bbox, 
+            "time_inf": time_inf,
             "time_inf_combine": time_inf_combine
         }
         
@@ -203,7 +210,7 @@ class Batch_MIX:
 
 
     def cal_mix_loss(self, out_html: torch.Tensor, pred_bbox_logits: torch.Tensor, criterion_mix):
-        if not self.use_mix_loss or self.only_structure:
+        if not self.use_mix_loss:
             return torch.tensor(0, device=self.device, dtype=torch.int64)
         
         else:
@@ -260,7 +267,7 @@ class Batch_MIX:
             else:
                 is_fc_pred = (html_pred == self.f_c_idx)
 
-            pref_pred  = is_fc_pred.cumsum(dim=1)
+            pref_pred  = is_fc_pred.int().cumsum(dim=1)
             shift_pred = torch.cat([
                 torch.zeros(B,1,device=html_pred.device,dtype=pref_pred.dtype),
                 pref_pred[:,:-1]
@@ -425,3 +432,7 @@ def turn_off_beit_grad_weights_freezing(model: nn.Module):
 def turn_on_beit_grad(model: nn.Module):
     for param in model.parameters():
         param.requires_grad = True
+
+
+
+
