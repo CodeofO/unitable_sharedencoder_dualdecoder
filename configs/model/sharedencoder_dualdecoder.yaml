@@ -41,8 +41,7 @@ model:
   vocab_size_html: -1
   vocab_size_bbox: -1
 
-  max_seq_len_html: -1
-  max_seq_len_bbox: -1
+  max_seq_len: -1
 
   padding_idx: -1
 

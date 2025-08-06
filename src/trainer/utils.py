@@ -184,6 +184,10 @@ class Batch_MIX:
             out_html, white_list=self.valid_html_token
         ).permute(0, 2, 1)
         pred["html"] = pred_html_logits
+        # print(f'🔥 pred_html_logits : {pred_html_logits.shape}')
+        # print(f'🔥 out_html : {out_html}')
+        # print(f'🔥 self.html_tgt : {self.html_tgt}')
+        # print(f'🔥 self.valid_html_token : {self.valid_html_token}')
         loss["html"] = criterion_html(pred_html_logits, self.html_tgt)
         
         # BBOX 결과 처리
@@ -275,6 +279,8 @@ class Batch_MIX:
         loss["html"] = criterion_html(pred_html_logits, self.html_tgt)
         
         # BBOX 결과 처리
+
+        
         out_bbox = outputs["bbox"]
         pred_bbox_logits = out_bbox.permute(0, 2, 1)
         pred["bbox"] = pred_bbox_logits

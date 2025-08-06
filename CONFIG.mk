@@ -78,9 +78,11 @@ NHEAD8 = ++model.nhead=8
 D_MODEL512 = ++model.d_model=512
 E4 = ++model.model.encoder.nlayer=4
 OTHRES = ++trainer.trans_size=[448,448] ++trainer.vqvae_size=[224,224] ++trainer.grid_size=28 ++trainer.num_mask_patches=300
+
 MODEL_ENCODER_DECODER = model=encoderdecoder
 MODEL_SHARED_DUAL = model=sharedencoder_dualdecoder
 MODEL_HIERACHICAL = model=HierarchicalSharedEncoder
+
 D4 = ++model.model.decoder_html.nlayer=4 ++model.model.decoder_bbox.nlayer=4
 
 # LR_cosine = trainer/train/lr_scheduler=cosine ++trainer.train.lr_scheduler.lr_lambda.min_ratio=5e-3
@@ -414,8 +416,6 @@ FT_MODE = ++trainer.trainer.finetune_mode=True
 OTSL_MODE = $(USE_OTSL) $(VOCAB_MIX_OTSL)
 
 
-# 임시로 사용
-
 
 
 
@@ -572,6 +572,7 @@ EXP_cp_seq_lr_shared_D4_4_4_PTN_100K_e32_seperate_pos_emb_center_lw2 := $(COMMON
 
 
 # make experiments/mvp4_lr_sequential_try2_SYN_shared/.done_finetune & make experiments/mvp4_lr_sequential_try2_SYN_shared_D4_6/.done_finetune
+
 
 
 # DATA_1M_IX_MVP30
