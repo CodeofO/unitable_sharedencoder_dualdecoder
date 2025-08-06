@@ -8,6 +8,7 @@ __pycache__/
 
 # OS 관련
 .DS_Store
+*.log
 
 # 기타
 experiments/
