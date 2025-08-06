@@ -33,6 +33,8 @@ class Collator:
         self.vocab_html.enable_truncation(max_seq_len_html)
         self.vocab_bbox = vocab_bbox
         self.vocab_bbox.enable_truncation(max_seq_len_bbox)
+        self.vocab_cp = vocab_bbox
+        self.vocab_cp.enable_truncation(max_seq_len_bbox//2)
         self.label_type = label_type
 
     def __call__(self, batch) -> Any:
@@ -57,17 +59,57 @@ class Collator:
 
         # 3) mix 모드 먼저 처리
         if self.label_type == "mix":
+
+            debug_name = ['PMC4150558_006_00.png', 'PMC4077062_007_00.png', 'PMC6057087_003_00.png', 'PMC3446521_003_00.png', 'PMC4149784_006_00.png', 'PMC1847435_008_00.png', 'PMC5681930_003_00.png', 'PMC5445258_003_00.png']
+
             # html
             html_tokens = ["".join(prepare_html_seq(s["html"])) for s in batch]
             label["html"] = self.vocab_html.encode_batch(html_tokens)
             # bbox
             bbox_strs = []
+            cp_strs = []
             for s in batch:
-                coords = [c for box in s["bbox"] for c in box]
-                tokens = prepare_bbox_seq(coords)
-                bbox_strs.append(" ".join(tokens))
+                coords_bbox = [c for box in s["bbox"] for c in box]
+                bbox_tokens = prepare_bbox_seq(coords_bbox)
+                bbox_strs.append(" ".join(bbox_tokens))
+
+                # if s["filename"] in debug_name:
+                #     print(f'🔥s["filename"] : {s["filename"]}')
+                #     print(f"coords_bbox : {len(coords_bbox)} | bbox_tokens : {len(bbox_tokens)}")
+                    # print(f"coords_cp : {len(coords_cp)} | cp_tokens : {len(cp_tokens)} | cp_tokens : {len(cp_tokens)}\n\n")
+
+
             label["bbox"] = self.vocab_bbox.encode_batch(bbox_strs)
 
+        # 3) mix 모드 먼저 처리
+        if self.label_type == "mix_cp":
+
+            # debug_name = ['PMC4150558_006_00.png', 'PMC4077062_007_00.png', 'PMC6057087_003_00.png', 'PMC3446521_003_00.png', 'PMC4149784_006_00.png', 'PMC1847435_008_00.png', 'PMC5681930_003_00.png', 'PMC5445258_003_00.png']
+
+
+            # html
+            html_tokens = ["".join(prepare_html_seq(s["html"])) for s in batch]
+            label["html"] = self.vocab_html.encode_batch(html_tokens)
+            # bbox
+            bbox_strs = []
+            cp_strs = []
+            for s in batch:
+                coords_bbox = [c for box in s["bbox"] for c in box]
+                bbox_tokens = prepare_bbox_seq(coords_bbox)
+                bbox_strs.append(" ".join(bbox_tokens))
+
+                coords_cp = [c for box in s["cp"] for c in box]
+                cp_tokens = prepare_bbox_seq(coords_cp)
+                cp_strs.append(" ".join(cp_tokens))
+
+                # if s["filename"] in debug_name:
+                #     print(f'🔥s["filename"] : {s["filename"]}')
+                #     print(f"coords_bbox : {len(coords_bbox)} | bbox_tokens : {len(bbox_tokens)}")
+                #     print(f"coords_cp : {len(coords_cp)} | cp_tokens : {len(cp_tokens)}\n\n")
+
+            label["bbox"] = self.vocab_bbox.encode_batch(bbox_strs)
+            label["cp"] = self.vocab_cp.encode_batch(cp_strs)
+            
         # 4) html-only
         elif self.label_type == "html":
             html_tokens = ["".join(prepare_html_seq(s["html"])) for s in batch]
@@ -87,7 +129,10 @@ class Collator:
             # collate_fn 자체가 cell 모드용으로 다르게 호출되기 때문에
             # 여긴 그냥 pass 해도 됩니다.
             pass
+        
 
+        # print(f"label bbox : \n{len(bbox_strs[0])} | {bbox_strs[0]}\n")
+        # print(f"label cp : \n{len(cp_strs[0])} | {cp_strs[0]} \n\n\n")
         return images, label
 
 

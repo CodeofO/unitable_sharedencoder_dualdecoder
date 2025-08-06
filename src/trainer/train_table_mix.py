@@ -20,6 +20,7 @@ import zipfile  # BadZipFile 예외 처리를 위해
 import gc
 from torch.optim.lr_scheduler import CosineAnnealingLR, SequentialLR, LinearLR
 
+
 # conda activate unitable_gitlab
 # pip install nvidia-ml-py3
 
@@ -135,7 +136,6 @@ from utils import (
     combine_filename_pred_gt,
 )
 
-from model.sharedencoder_dualdecoder import SharedEncoder_DualDecoder
 
 SNAPSHOT_KEYS = set(["EPOCH", "STEP", "OPTIMIZER", "LR_SCHEDULER", "MODEL", "LOSS"])
 
@@ -164,7 +164,7 @@ class TableTrainer_MIX:
         device: int, 
         vocab_html: tk.Tokenizer, # ✅
         vocab_bbox: tk.Tokenizer, # ✅
-        model: SharedEncoder_DualDecoder, # ✅ 통합 모델
+        model, # ✅ 통합 모델
         log: logging.Logger, 
         exp_dir: Path,
         snapshot: Path = None,
@@ -179,6 +179,8 @@ class TableTrainer_MIX:
         self.use_mix_loss = use_mix_loss
         self.otsl_mode = otsl_mode
         self.finetune_mode = finetune_mode
+
+        self.accumulate_grad_steps = 8  # 통합 모델용
 
         print(f"✅ use mix loss : {self.use_mix_loss}")
         print(f"✅ use OTSL : {self.otsl_mode}")
@@ -247,7 +249,7 @@ class TableTrainer_MIX:
         torch.cuda.set_device(device)  # master gpu takes up extra memory
         torch.cuda.empty_cache()
     
-
+    
     def _freeze_beit(self):
         if self.start_epoch < self.freeze_beit_epoch:
             turn_off_beit_grad(self.model)
@@ -276,20 +278,17 @@ class TableTrainer_MIX:
         grad_clip: float = None,
     ):
 
-        accumulate_grad_steps = 4  # 통합 모델용
-
         # ✅ Gradient Accumulation용 카운터
         accumulation_count = 0
 
         avg_loss = 0.0
         st_1epoch = time()
         time_inf_1epoch = 0
-        time_inf_bbox_1epoch = 0
-        time_combine_result_1epoch = 0
         time_backward_1epoch = 0
 
         gpu_util_sum = 0.0
         gpu_mem_sum = 0.0
+        loss_cp_sum = 0.0
         loss_html_sum = 0.0
         loss_bbox_sum = 0.0
         loss_mix_sum = 0.0
@@ -314,20 +313,32 @@ class TableTrainer_MIX:
 
             st = time()
             with amp.autocast(device_type='cuda'):
-                loss, _, time_dict = batch.inference_shared(
-                    self.model,
-                    criterion_html=self.criterion_html,
-                    criterion_bbox=self.criterion_bbox,
-                    criterion_mix=self.criterion_mix,
-                    loss_weights=loss_weights,
-                )
+                if 'cp' in target:
+                    loss, _, time_dict = batch.inference_shared_cp(
+                        self.model,
+                        criterion_cp=self.criterion_cp,
+                        criterion_html=self.criterion_html,
+                        criterion_bbox=self.criterion_bbox,
+                        criterion_mix=self.criterion_mix,
+                        loss_weights=loss_weights,
+                    )
+                else:
+                    loss, _, time_dict = batch.inference_shared(
+                        self.model,
+                        criterion_html=self.criterion_html,
+                        criterion_bbox=self.criterion_bbox,
+                        criterion_mix=self.criterion_mix,
+                        loss_weights=loss_weights,
+                    )
+
+
                 util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
 
                 tact_10it_inf += time() - st
                 total_loss = loss["total"]
                 
                 # ✅ 수정: Gradient accumulation을 위해 loss를 accumulation step으로 나누기
-                total_loss = total_loss / accumulate_grad_steps
+                total_loss = total_loss / self.accumulate_grad_steps
 
                 time_inf_1epoch += time_dict["time_inf"]
 
@@ -340,7 +351,7 @@ class TableTrainer_MIX:
             accumulation_count += 1
 
             # ✅ 통합 모델: Accumulation step마다 업데이트
-            if accumulation_count >= accumulate_grad_steps:
+            if accumulation_count >= self.accumulate_grad_steps:
                 if grad_clip:
                     self.scaler.unscale_(self.optimizer)
                     nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=grad_clip)
@@ -351,7 +362,7 @@ class TableTrainer_MIX:
                 accumulation_count = 0  # 카운터 리셋
 
             # ✅ 수정: 원본 loss 값을 사용하여 로깅 (scaling 이전 값)
-            total_loss_scalar = (total_loss * accumulate_grad_steps).item()  # 원본 loss 복원
+            total_loss_scalar = (total_loss * self.accumulate_grad_steps).item()  # 원본 loss 복원
             avg_loss += total_loss_scalar
 
 
@@ -359,17 +370,23 @@ class TableTrainer_MIX:
 
             gpu_util_sum += util
             gpu_mem_sum += peak_mem
+            loss_cp_sum += loss["cp"].item()
             loss_html_sum += loss["html"].item()
             loss_bbox_sum += loss["bbox"].item()
-            loss_mix_sum += loss["mix_combine"].item()
+            loss_mix_sum += loss["mix_loss"].item()
 
             self.global_step += 1
 
             if i % 10 == 0:
                 loss_info = f"Loss {total_loss_scalar:.3f} ({avg_loss / (i + 1):.3f})"
-                loss_info += f" Html {loss['html'].item():.3f}"
-                loss_info += f" Bbox {loss['bbox'].item():.3f}"
-                loss_info += f" Mix-Combine {loss['mix_combine'].item():.3f}"
+                loss_info += f" CP {loss['cp'].item():.3f}"
+                loss_info += f" HTML {loss['html'].item():.3f}"
+                loss_info += f" BBOX {loss['bbox'].item():.3f}"
+                loss_info += f" Mix-LOSS {loss['mix_loss'].item():.3f}"
+                
+                # Learning rate monitoring for shared model
+                current_lr = self.lr_scheduler.get_last_lr()[0]
+                loss_info += f" LR {current_lr:.2e}"
 
                 self.log.info(
                     printer(
@@ -377,11 +394,10 @@ class TableTrainer_MIX:
                         f"Epoch {epoch} Step {i + 1}/{len(self.train_dataloader)} | {loss_info}",
                     )
                 )
-
                 tact_10it_inf = 0
                 tact_10it_back = 0
 
-            if i % 1000 == 0 and i != 0:
+            if i % 10000 == 0 and i != 0:
                 safe_gc_collect(verbose=True)
         
         del loss, batch
@@ -396,23 +412,21 @@ class TableTrainer_MIX:
             time_dict_1epoch = {
                 "epoch": epoch,
                 "time_total_1epoch": time_total_1epoch,
-                "time_inf_1epoch": time_inf_1epoch,
-                "time_backward_1epoch": time_backward_1epoch,
+                # "time_inf_1epoch": time_inf_1epoch,
+                # "time_backward_1epoch": time_backward_1epoch,
                 "gpu_util_avg_per_1epoch": f"{gpu_util_sum / n_batches:.2f}%",
                 "gpu_mem_avg_per_1epoch": f"{gpu_mem_sum / n_batches:.2f}GB",
                 "train_loss_total": loss_total_avg_per_1epoch,
+                "train_loss_cp": loss_cp_sum / n_batches,
                 "train_loss_html": loss_html_sum / n_batches,
                 "train_loss_bbox": loss_bbox_sum / n_batches,
                 "train_loss_mix": loss_mix_sum / n_batches,
+
             }
             
         return time_dict_1epoch
 
 
-
-        safe_gc_collect(verbose=True)
-
-        
 
                 
         
@@ -423,10 +437,8 @@ class TableTrainer_MIX:
         train_cfg: DictConfig,
         valid_cfg: DictConfig,):
         
-        TRAIN_START_TOTAL = time()
         self.train_dataloader = train_dataloader
         self.valid_dataloader = valid_dataloader
-        # print(f'🔥 self.train_dataloader : {len(self.train_dataloader)}')
 
         # ensure correct weight decay: https://github.com/karpathy/minGPT/blob/37baab71b9abea1b76ab957409a1cc2fbfba8a26/mingpt/model.py#L215
         optim_params = configure_optimizer_weight_decay(
@@ -434,30 +446,6 @@ class TableTrainer_MIX:
         self.optimizer = instantiate(train_cfg.optimizer, optim_params)
         # print(f'🔥optimizer : {self.optimizer} ')
 
-        # ================= LR Scheduler (Warmup 포함) =================
-        # 웜업(3 에포크) + s1(29 에포크) + s2(16 에포크) = 총 48 에포크
-        # SharedEncoder_DualDecoder용 스케줄러 설정
-        warmup_steps = len(self.train_dataloader) * 3   # 3 epochs
-        s1_steps = len(self.train_dataloader) * 29      # 29 epochs
-        s2_steps = len(self.train_dataloader) * 16      # 16 epochs
-
-        warmup_scheduler = LinearLR(self.optimizer, start_factor=1e-5, total_iters=warmup_steps)
-        s1_scheduler = CosineAnnealingLR(self.optimizer, T_max=s1_steps, eta_min=1e-6)
-        s2_scheduler = CosineAnnealingLR(self.optimizer, T_max=s2_steps, eta_min=1e-6)
-        milestones = [warmup_steps, warmup_steps + s1_steps] # 각 스케줄러가 끝나는 지점
-        self.lr_scheduler = SequentialLR(self.optimizer, schedulers=[warmup_scheduler, s1_scheduler, s2_scheduler], milestones=milestones)
-
-
-
-
-
-
-
-
-
-        if self.snapshot is not None:
-            self.optimizer.load_state_dict(self.snapshot["OPTIMIZER"])
-            self.lr_scheduler.load_state_dict(self.snapshot["LR_SCHEDULER"])
         
         self.criterion_bbox = None
         if ("bbox" in train_cfg.target) or ("mix" in train_cfg.target): # ✅
@@ -472,6 +460,21 @@ class TableTrainer_MIX:
                 weight=torch.tensor(tmp, device=self.device),
                 ignore_index=self.padding_idx_bbox,
             )
+        
+        self.criterion_cp = None
+        if ("cp" in train_cfg.target):
+            tmp = [
+                self.vocab_bbox.token_to_id(i)
+                for i in VALID_BBOX_TOKEN[
+                    : train_cfg.img_size[0] + 2
+                ]  # +1 for <eos> +1 for bbox == img_size
+            ]
+            tmp = [1.0 if i in tmp else 0.0 for i in range(self.vocab_bbox.get_vocab_size())]
+            self.criterion_cp = nn.CrossEntropyLoss(
+                weight=torch.tensor(tmp, device=self.device),
+                ignore_index=self.padding_idx_bbox,
+            )
+        
 
         best_loss = float("inf")
         self.model.train()
@@ -483,6 +486,32 @@ class TableTrainer_MIX:
 
         if self.finetune_mode:
             self.freeze_beit_epoch = max_epoch
+
+        self.max_epoch = max_epoch
+
+        # ================= LR Scheduler (Warmup 포함) =================
+        # 웜업(3 에포크) + s1(29 에포크) + s2(16 에포크) = 총 48 에포크
+        # SharedEncoder_DualDecoder용 스케줄러 설정
+
+        # ⚠️ 중요: 배치 누적 횟수로 나눠줌
+        steps_per_epoch = len(self.train_dataloader) // self.accumulate_grad_steps
+
+        warmup_steps = steps_per_epoch * 3   # 3 epochs
+        s1_steps = steps_per_epoch * (self.max_epoch // 3) * 2
+        s2_steps = steps_per_epoch * (self.max_epoch // 3)
+
+        warmup_scheduler = LinearLR(self.optimizer, start_factor=1e-5, total_iters=warmup_steps)
+        s1_scheduler = CosineAnnealingLR(self.optimizer, T_max=s1_steps, eta_min=1e-6)
+        s2_scheduler = CosineAnnealingLR(self.optimizer, T_max=s2_steps, eta_min=1e-6)
+        milestones = [warmup_steps, warmup_steps + s1_steps] # 각 스케줄러가 끝나는 지점
+        self.lr_scheduler = SequentialLR(self.optimizer, schedulers=[warmup_scheduler, s1_scheduler, s2_scheduler], milestones=milestones)
+
+
+        if self.snapshot is not None:
+            self.optimizer.load_state_dict(self.snapshot["OPTIMIZER"])
+            self.lr_scheduler.load_state_dict(self.snapshot["LR_SCHEDULER"])
+
+
 
         for epoch in range(self.start_epoch, max_epoch):
             print(f'👉 max_epoch : {max_epoch} | current epoch : {epoch}')
@@ -499,11 +528,13 @@ class TableTrainer_MIX:
             valid_loss_dict = self.valid(valid_cfg)
 
             valid_total_loss = valid_loss_dict['total']
+            valid_cp_loss = valid_loss_dict['cp']
             valid_html_loss = valid_loss_dict['html']
             valid_bbox_loss = valid_loss_dict['bbox']
             valid_mix_loss = valid_loss_dict['mix']
 
             time_dict_1epoch["val_loss_total"] = float(valid_total_loss)
+            time_dict_1epoch["val_loss_cp"] = float(valid_cp_loss)
             time_dict_1epoch["val_loss_html"] = float(valid_html_loss)
             time_dict_1epoch["val_loss_bbox"] = float(valid_bbox_loss)
             time_dict_1epoch["val_loss_mix"] = float(valid_mix_loss)
@@ -560,11 +591,13 @@ class TableTrainer_MIX:
 
     def valid(self, cfg: DictConfig):
         total_loss = 0.0
+        cp_loss = 0.0
         html_loss = 0.0
         bbox_loss = 0.0
         mix_loss = 0.0
 
         avg_total_loss = 0.0
+        avg_cp_loss = 0.0
         avg_html_loss = 0.0
         avg_bbox_loss = 0.0
         avg_mix_loss = 0.0
@@ -584,20 +617,35 @@ class TableTrainer_MIX:
                               otsl_mode = self.otsl_mode)
 
             with torch.no_grad():
-                loss, _, time_dict = batch.inference_shared(
-                    self.model,
-                    criterion_html=self.criterion_html,
-                    criterion_bbox=self.criterion_bbox,
-                    criterion_mix=self.criterion_mix,
-                    loss_weights=cfg.loss_weights,
-                )
+
+                if 'cp' in cfg.target:
+                    loss, _, time_dict = batch.inference_shared_cp(
+                        self.model,
+                        criterion_cp=self.criterion_cp,
+                        criterion_html=self.criterion_html,
+                        criterion_bbox=self.criterion_bbox,
+                        criterion_mix=self.criterion_mix,
+                        loss_weights=cfg.loss_weights,
+                    )
+                else:
+                    loss, _, time_dict = batch.inference_shared(
+                        self.model,
+                        criterion_html=self.criterion_html,
+                        criterion_bbox=self.criterion_bbox,
+                        criterion_mix=self.criterion_mix,
+                        loss_weights=cfg.loss_weights,
+                    )
+
+
 
             total_loss = loss["total"].detach().cpu().data
+            cp_loss = loss["cp"].detach().cpu().data
             html_loss = loss["html"].detach().cpu().data
             bbox_loss = loss["bbox"].detach().cpu().data
-            mix_loss = loss["mix_combine"].detach().cpu().data
+            mix_loss = loss["mix_loss"].detach().cpu().data
 
             avg_total_loss += total_loss * batch.image.shape[0]
+            avg_cp_loss += cp_loss * batch.image.shape[0]
             avg_html_loss += html_loss * batch.image.shape[0]
             avg_bbox_loss += bbox_loss * batch.image.shape[0]
             avg_mix_loss += mix_loss * batch.image.shape[0]
@@ -606,14 +654,16 @@ class TableTrainer_MIX:
 
             if i % 10 == 0:
                 loss_info = f"Loss {total_loss:.3f} ({avg_total_loss / total_samples:.3f})"
+                if not isinstance(loss["cp"], int):
+                    loss_info += f" CP {loss['cp'].detach().cpu().data:.3f}"
                 if not isinstance(loss["html"], int):
                     loss_info += f" Html {loss['html'].detach().cpu().data:.3f}"
                 if not isinstance(loss["cell"], int):
                     loss_info += f" Cell {loss['cell'].detach().cpu().data:.3f}"
                 if not isinstance(loss["bbox"], int):
                     loss_info += f" Bbox {loss['bbox'].detach().cpu().data:.3f}"
-                if not isinstance(loss["mix_combine"], int) and loss['mix_combine'] != 0:
-                    loss_info += f" Mix-Combine {loss['mix_combine'].detach().cpu().data:.3f}"
+                if not isinstance(loss["mix_loss"], int) and loss['mix_loss'] != 0:
+                    loss_info += f" Mix-Combine {loss['mix_loss'].detach().cpu().data:.3f}"
                     
                 self.log.info(
                     printer(
@@ -624,6 +674,7 @@ class TableTrainer_MIX:
 
         loss_dict = {
             'total' : avg_total_loss / total_samples,
+            'cp' : avg_cp_loss / total_samples,
             'html' : avg_html_loss / total_samples,
             'bbox' : avg_bbox_loss / total_samples,
             'mix' : avg_mix_loss / total_samples,

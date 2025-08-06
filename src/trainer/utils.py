@@ -113,7 +113,16 @@ class Batch_MIX:
             self.bbox_padding_mask,
         ) = self._prepare_transformer_input(obj[1]["bbox"])  # ✅
 
+        if 'mix_cp' == target:
+            (
+                self.cp_src,
+                self.cp_tgt,
+                self.cp_casual_mask,
+                self.cp_padding_mask,
+            ) = self._prepare_transformer_input(obj[1]["cp"])  # ✅
 
+            if self.cp_tgt.shape[1] > 1700:
+                print(f'🔥🔥🔥 self.name : {self.name} | self.cp_tgt : {self.cp_tgt.shape}')
 
 
     def _prepare_transformer_input(
@@ -131,7 +140,7 @@ class Batch_MIX:
 
     def inference_shared(
         self,
-        model: nn.Module,  # SharedEncoder_DualDecoder
+        model: nn.Module,
         criterion_html: nn.Module,
         criterion_bbox: nn.Module,
         criterion_mix: nn.Module,
@@ -143,7 +152,7 @@ class Batch_MIX:
         한 번의 forward pass로 HTML과 BBOX 결과를 동시에 얻음
         """
         pred = dict()
-        loss = dict(table=0, html=0, cell=0, bbox=0)
+        loss = dict(table=0, html=0, cell=0, bbox=0, cp=torch.tensor(0, device=self.device, dtype=torch.int64))
         
         st = time()
         if use_ddp:
@@ -175,10 +184,6 @@ class Batch_MIX:
             out_html, white_list=self.valid_html_token
         ).permute(0, 2, 1)
         pred["html"] = pred_html_logits
-        # print(f'🔥 pred_html_logits : {pred_html_logits.shape}')
-        # print(f'🔥 out_html : {out_html}')
-        # print(f'🔥 self.html_tgt : {self.html_tgt}')
-        # print(f'🔥 self.valid_html_token : {self.valid_html_token}')
         loss["html"] = criterion_html(pred_html_logits, self.html_tgt)
         
         # BBOX 결과 처리
@@ -191,7 +196,95 @@ class Batch_MIX:
         # Mix loss 계산
         st = time()
         self.check_b = 3
-        loss['mix_combine'] = self.cal_mix_loss(out_html, pred_bbox_logits, criterion_mix)
+        loss['mix_loss'] = self.cal_mix_loss(out_html, pred_bbox_logits, criterion_mix)
+        time_inf_combine = time() - st
+        
+        time_dict = {
+            "time_inf": time_inf,
+            "time_inf_combine": time_inf_combine
+        }
+        
+        # Total loss 계산
+        total = torch.tensor(0.0).to(self.device)
+        for k, v in loss_weights.items():
+            total += loss[k] * v
+        loss["total"] = total
+        
+        
+        return loss, pred, time_dict
+
+
+    def inference_shared_cp(
+        self,
+        model: nn.Module,
+        criterion_cp: nn.Module,
+        criterion_html: nn.Module,
+        criterion_bbox: nn.Module,
+        criterion_mix: nn.Module,
+        loss_weights: dict = None,
+        use_ddp: bool = True,
+    ) -> Tuple[Dict, Dict]:
+        """
+        SharedEncoder_DualDecoder용 inference 메서드
+        한 번의 forward pass로 HTML과 BBOX 결과를 동시에 얻음
+        """
+        pred = dict()
+        loss = dict(table=0, html=0, cell=0, bbox=0, cp=0)
+        
+        st = time()
+        if use_ddp:
+            # SharedEncoder_DualDecoder forward pass
+            outputs = model.module(
+                self.image,
+                self.html_src,
+                self.bbox_src,
+                self.cp_src,
+                self.html_casual_mask,
+                self.bbox_casual_mask,
+                self.cp_casual_mask,
+                self.html_padding_mask,
+                self.bbox_padding_mask,
+                self.cp_padding_mask,
+            )
+        else:
+            outputs = model(
+                self.image,
+                self.html_src,
+                self.bbox_src,
+                self.cp_src,
+                self.html_casual_mask,
+                self.bbox_casual_mask,
+                self.cp_casual_mask,
+                self.html_padding_mask,
+                self.bbox_padding_mask,
+                self.cp_padding_mask,
+            )
+        
+        # Center Point 결과 처리
+        out_cp = outputs["cp"]
+        pred_cp_logits = out_cp.permute(0, 2, 1)
+        pred["cp"] = pred_cp_logits
+        loss["cp"] = criterion_cp(pred_cp_logits, self.cp_tgt)
+
+        # HTML 결과 처리
+        out_html = outputs["html"]
+        pred_html_logits = pred_token_within_range(
+            out_html, white_list=self.valid_html_token
+        ).permute(0, 2, 1)
+        pred["html"] = pred_html_logits
+        loss["html"] = criterion_html(pred_html_logits, self.html_tgt)
+        
+        # BBOX 결과 처리
+        out_bbox = outputs["bbox"]
+        pred_bbox_logits = out_bbox.permute(0, 2, 1)
+        pred["bbox"] = pred_bbox_logits
+        loss["bbox"] = criterion_bbox(pred_bbox_logits, self.bbox_tgt)
+        time_inf = time() - st
+        
+        # Mix loss 계산
+        st = time()
+        self.check_b = 3
+        loss['mix_loss'] = self.cal_mix_loss(out_html, pred_bbox_logits, criterion_mix)
         time_inf_combine = time() - st
         
         time_dict = {

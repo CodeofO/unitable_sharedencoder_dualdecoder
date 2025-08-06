@@ -311,7 +311,7 @@ class PubTabNet(Dataset):
             return dict(filename=filename, image=img, bbox=new_bboxes)
 
         # —— mix ——
-        if self.label_type == "mix":
+        if self.label_type == "mix" or self.label_type == "mix_cp":
             # 1) HTML tokens
             tokens = ann["structure"]["tokens"]
             tokens = extract_structure_tokens(tokens)
@@ -341,8 +341,29 @@ class PubTabNet(Dataset):
                     new_bboxes.extend(augmented)
                 else:
                     new_bboxes.append(augmented)
+            
+            if self.label_type == "mix_cp":
+                center_points = []
+                for bbox in new_bboxes:
+                    x0, y0, x1, y1 = bbox
+                    cp = [(x0+x1)//2, (y0+y1)//2]
+                    center_points.append(cp)
 
-            return dict(filename=filename, image=img, html=tokens, bbox=new_bboxes)
+                if len(new_bboxes) != len(center_points):
+                    print(f'🔥 img_path : {img_path} | len(new_bboxes) : {len(new_bboxes)} | len(center_points) : {len(center_points)}')
+
+                # debug_name = ['PMC4150558_006_00.png', 'PMC4077062_007_00.png', 'PMC6057087_003_00.png', 'PMC3446521_003_00.png', 'PMC4149784_006_00.png', 'PMC1847435_008_00.png', 'PMC5681930_003_00.png', 'PMC5445258_003_00.png']
+
+                # if filename in debug_name:
+                #     print(f'🔥 img_path : {img_path} | len(new_bboxes) : {len(new_bboxes)} | len(center_points) : {len(center_points)}')
+
+
+
+
+            if self.label_type == "mix_cp":
+                return dict(filename=filename, image=img, html=tokens, bbox=new_bboxes, cp=center_points)
+            else:
+                return dict(filename=filename, image=img, html=tokens, bbox=new_bboxes)
 
         # 지원하지 않는 타입
         raise ValueError(f"Unknown label_type: {self.label_type}")

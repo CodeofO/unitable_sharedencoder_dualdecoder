@@ -11,7 +11,20 @@ LABEL_IMAGE = ++trainer.label_type="image"
 LABEL_HTML = ++trainer.label_type="html" "++trainer.train.loss_weights.html=1"
 LABEL_CELL = ++trainer.label_type="cell" "++trainer.train.loss_weights.cell=1"
 LABEL_BBOX = ++trainer.label_type="bbox" "++trainer.train.loss_weights.bbox=1"
-LABEL_MIX = ++trainer.label_type="mix" "++trainer.train.loss_weights.mix_combine=1" "++trainer.train.loss_weights.html=1" "++trainer.train.loss_weights.bbox=1"
+
+LABEL_MIX = ++trainer.label_type="mix"\
+			"++trainer.train.loss_weights.mix_loss=1"\
+			"++trainer.train.loss_weights.html=1"\
+			"++trainer.train.loss_weights.bbox=1"\
+
+LABEL_MIX_CP = ++trainer.label_type="mix_cp"\
+			"++trainer.train.loss_weights.cp=1"\
+			"++trainer.train.loss_weights.html=1"\
+			"++trainer.train.loss_weights.bbox=1"\
+			"++trainer.train.loss_weights.mix_loss=1"\
+
+
+
 
 TRAINER_TABLE = trainer=table_mix
 
@@ -65,7 +78,9 @@ NHEAD8 = ++model.nhead=8
 D_MODEL512 = ++model.d_model=512
 E4 = ++model.model.encoder.nlayer=4
 OTHRES = ++trainer.trans_size=[448,448] ++trainer.vqvae_size=[224,224] ++trainer.grid_size=28 ++trainer.num_mask_patches=300
-MODEL_ENCODER_DECODER = model=sharedencoder_dualdecoder
+MODEL_ENCODER_DECODER = model=encoderdecoder
+MODEL_SHARED_DUAL = model=sharedencoder_dualdecoder
+MODEL_HIERACHICAL = model=HierarchicalSharedEncoder
 D4 = ++model.model.decoder_html.nlayer=4 ++model.model.decoder_bbox.nlayer=4
 
 # LR_cosine = trainer/train/lr_scheduler=cosine ++trainer.train.lr_scheduler.lr_lambda.min_ratio=5e-3
@@ -166,6 +181,9 @@ SYN_SPS_10000_M = +dataset/synthtabnet_sparse_10000@dataset.train.d6=train_datas
 	+dataset/synthtabnet_sparse_10000@dataset.valid.d6=valid_dataset \
 	+dataset/synthtabnet_sparse_10000@dataset.test.d6=test_dataset
 
+PTN_100K_M = +dataset/pubtabnet_100K@dataset.train.d1=train_dataset \
+	+dataset/pubtabnet_100K@dataset.valid.d1=valid_dataset \
+	+dataset/pubtabnet_100K@dataset.test.d1=test_dataset
 
 PTN_50K_M = +dataset/pubtabnet_50K@dataset.train.d1=train_dataset \
 	+dataset/pubtabnet_50K@dataset.valid.d1=valid_dataset \
@@ -249,6 +267,9 @@ IX_mvp4_case3_injection_molding = +dataset/ix_dataset/MVP4_target_case3_injectio
 	+dataset/ix_dataset/MVP4_target_case3_injection_molding@dataset.test.d20=test_dataset
 
 
+DATA_PTN_100K = $(DATA_MULTI) \
+	$(PTN_100K_M)
+
 DATA_1M_NO_FIN = $(DATA_MULTI) \
 	$(PTN_505K_M) $(SYN_PUB_140K_M) $(SYN_FIN_140K_M) $(SYN_MKT_140K_M) $(SYN_SPS_150K_M)
 
@@ -321,6 +342,7 @@ EPOCH31 = ++trainer.train.epochs=31
 EPOCH48 = ++trainer.train.epochs=48
 EPOCH25 = ++trainer.train.epochs=25
 EPOCH30 = ++trainer.train.epochs=30
+EPOCH32 = ++trainer.train.epochs=32
 EPOCH40 = ++trainer.train.epochs=40
 EPOCH50 = ++trainer.train.epochs=50
 EPOCH60 = ++trainer.train.epochs=60
@@ -393,7 +415,6 @@ OTSL_MODE = $(USE_OTSL) $(VOCAB_MIX_OTSL)
 
 
 # 임시로 사용
-ONLY_STRUCTURE = ++trainer.trainer.only_structure=True
 
 
 
@@ -439,7 +460,7 @@ EXP_mvp4_lr_cycle_15 := $(COMMONS_LARGE) $(HTML) $(BBOX) $(DATA_1M_IX_MVP30)\
 ############## SharedEncoder_DualDecoder Experiments #######################
 
 # SharedEncoder_DualDecoder specific settings (updated with sequence lengths)
-SHARED_OPTIMIZER_EXTENDED := $(SEQ1024_html) $(SEQ2048_bbox) ++trainer.train.optimizer.lr=1e-4 \
+SHARED_OPTIMIZER_EXTENDED := ++trainer.train.optimizer.lr=2e-4 \
 		++trainer.train.optimizer._target_=torch.optim.AdamW \
 		++trainer.train.optimizer.weight_decay=5e-2 \
 		++trainer.train.grad_clip=12
@@ -448,16 +469,117 @@ LR_seq = trainer/train/lr_scheduler=sequential
 
 SETTING := $(LR_seq) $(SHARED_OPTIMIZER_EXTENDED) $(FT_MODE) $(USE_AUG) $(OTSL_MODE) $(USE_MIX_LOSS)
  
-# make experiments/mvp4_lr_sequential_try2_SYN_shared_no_mix/.done_finetune
-EXP_mvp4_lr_sequential_try2_SYN_shared_no_mix := $(COMMONS_LARGE) $(SETTING) $(DATA_SYN)\
+# make experiments/mvp4_lr_sequential_try2_SYN_shared/.done_finetune
+EXP_mvp4_lr_sequential_try2_SYN_shared := $(COMMONS_LARGE) $(SETTING) $(DATA_SYN)\
 					$(BATCH16) $(EPOCH48)\
 					$(SEQ1024_html) $(SEQ2048_bbox)
+
+
+
+# make experiments/mvp4_lr_sequential_try2_SYN_shared_D4_6/.done_finetune
+EXP_mvp4_lr_sequential_try2_SYN_shared_D4_6 := $(COMMONS_LARGE) $(SETTING) $(DATA_SYN)\
+					$(BATCH16) $(EPOCH48)\
+					$(SEQ1024_html) $(SEQ2048_bbox) $(D4_6)
+
+
+
+
+
+
+
+D4_4 = ++model.model.decoder_html.nlayer=4 ++model.model.decoder_bbox.nlayer=4
+D8_8 = ++model.model.decoder_html.nlayer=8 ++model.model.decoder_bbox.nlayer=8
+D12_12 = ++model.model.decoder_html.nlayer=12 ++model.model.decoder_bbox.nlayer=12
+
+
+######### BASE #########
+# make experiments/mvp4_seq_lr_shared_D4_4_PTN_100K_e32/.done_finetune
+EXP_mvp4_seq_lr_shared_D4_4_PTN_100K_e32 := $(COMMONS_LARGE) $(SETTING) $(DATA_PTN_100K)\
+					$(BATCH8) $(EPOCH32)\
+					$(SEQ512_html) $(SEQ2048_bbox) $(D4_4) $(MODEL_SHARED_DUAL)
+# make experiments/mvp4_seq_lr_shared_D8_8_PTN_100K_e32/.done_finetune
+EXP_mvp4_seq_lr_shared_D8_8_PTN_100K_e32 := $(COMMONS_LARGE) $(SETTING) $(DATA_PTN_100K)\
+					$(BATCH8) $(EPOCH32)\
+					$(SEQ512_html) $(SEQ2048_bbox) $(D8_8) $(MODEL_SHARED_DUAL)
+
+
+
+
+
+######### POS EMBED 분리 #########
+# make experiments/mvp4_seq_lr_shared_D4_4_PTN_100K_e32_seperate_pos_emb/.done_finetune
+EXP_mvp4_seq_lr_shared_D4_4_PTN_100K_e32_seperate_pos_emb := $(COMMONS_LARGE) $(SETTING) $(DATA_PTN_100K)\
+					$(BATCH8) $(EPOCH32)\
+					$(SEQ512_html) $(SEQ2048_bbox) $(D4_4) $(MODEL_SHARED_DUAL)
+
+
+
+# make experiments/mvp4_seq_lr_shared_D4_4_PTN_100K_e32_seperate_pos_emb/.done_finetune
+EXP_mvp4_seq_lr_shared_D4_4_PTN_100K_e48_seperate_pos_emb := $(COMMONS_LARGE) $(SETTING) $(DATA_PTN_100K)\
+					$(BATCH8) $(EPOCH32)\
+					$(SEQ1024_html) $(SEQ2048_bbox) $(D4_4) $(MODEL_SHARED_DUAL)
+
+
+
+
+
+
+
+
+
+
+# # make experiments/mvp4_seq_lr_shared_D8_8_PTN_100K_e32_seperate_pos_emb/.done_finetune
+# EXP_mvp4_seq_lr_shared_D8_8_PTN_100K_e32_seperate_pos_emb := $(COMMONS_LARGE) $(SETTING) $(DATA_PTN_100K)\
+# 					$(BATCH8) $(EPOCH32)\
+# 					$(SEQ512_html) $(SEQ2048_bbox) $(D8_8) $(MODEL_SHARED_DUAL)
+
+
+
+######### Center Point Decoder 추가 #########
+
+D4_4_4 = ++model.model.decoder_center.nlayer=4 ++model.model.decoder_html.nlayer=4 ++model.model.decoder_bbox.nlayer=4
+D4_8_8 = ++model.model.decoder_center.nlayer=4 ++model.model.decoder_html.nlayer=8 ++model.model.decoder_bbox.nlayer=8
+
+# make experiments/cp_seq_lr_shared_D4_4_4_PTN_100K_e32_seperate_pos_emb/.done_finetune
+EXP_cp_seq_lr_shared_D4_4_4_PTN_100K_e32_seperate_pos_emb := $(COMMONS_LARGE) $(SETTING) $(DATA_PTN_100K)\
+					$(BATCH8) $(EPOCH32)\
+					$(SEQ512_html) $(SEQ2048_bbox) $(D4_4_4) $(MODEL_HIERACHICAL) $(LABEL_MIX_CP)
+
+
+
+# make experiments/cp_seq_lr_shared_D4_8_8_PTN_100K_e32_seperate_pos_emb/.done_finetune
+EXP_cp_seq_lr_shared_D4_8_8_PTN_100K_e32_seperate_pos_emb := $(COMMONS_LARGE) $(SETTING) $(DATA_PTN_100K)\
+					$(BATCH8) $(EPOCH32)\
+					$(SEQ512_html) $(SEQ2048_bbox) $(D4_8_8) $(MODEL_HIERACHICAL) $(LABEL_MIX_CP)
+
+
+
+LOSS_WEIGHTS_CENTER_2 = "++trainer.train.loss_weights.cp=2"
+# make experiments/cp_seq_lr_shared_D4_4_4_PTN_100K_e32_seperate_pos_emb_center_lw2/.done_finetune
+EXP_cp_seq_lr_shared_D4_4_4_PTN_100K_e32_seperate_pos_emb_center_lw2 := $(COMMONS_LARGE) $(SETTING) $(DATA_PTN_100K)\
+					$(BATCH8) $(EPOCH32)\
+					$(SEQ512_html) $(SEQ2048_bbox) $(D4_8_8) $(MODEL_HIERACHICAL) $(LABEL_MIX_CP) $(LOSS_WEIGHTS_CENTER_2)
+
+
+
+
+
+# make -C unitable_shared_encoder experiments/mvp4_seq_lr_shared_D4_4_PTN_100K_e32_seperate_pos_emb/.done_finetune && make -C unitable_shared_encoder experiments/mvp4_seq_lr_shared_D8_8_PTN_100K_e32_seperate_pos_emb/.done_finetune && make -C unitable_shared_encoder experiments/cp_seq_lr_shared_D4_4_4_PTN_100K_e32_seperate_pos_emb_center_lw2/.done_finetune && make -C unitable_shared_encoder experiments/cp_seq_lr_shared_D4_8_8_PTN_100K_e32_seperate_pos_emb/.done_finetune
+
+
+# make -C unitable_shared_encoder experiments/mvp4_seq_lr_shared_D12_12_PTN_100K_e32/.done_finetune
+
+
+
+# make experiments/mvp4_lr_sequential_try2_SYN_shared/.done_finetune & make experiments/mvp4_lr_sequential_try2_SYN_shared_D4_6/.done_finetune
 
 
 # DATA_1M_IX_MVP30
 # DATA_MINI
 
 
+
+# D4_6
 
 
 
