@@ -12,3 +12,4 @@ __pycache__/
 # 기타
 experiments/
 src/wandb/
+src/main_mix.log

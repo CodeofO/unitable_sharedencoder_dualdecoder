@@ -24,7 +24,6 @@ train:
     html: 0
     cell: 0
     bbox: 0
-    mix_combine: 0
     
   grad_clip_html: 5
   grad_clip_bbox: 5

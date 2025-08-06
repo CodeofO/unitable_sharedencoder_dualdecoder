@@ -14,10 +14,20 @@ backbone_downsampling_factor: 16
 
 
 model:
-  _target_: model.sharedencoder_multidecoder.SharedEncoder_DualDecoder
+  _target_: model.sharedencoder_multidecoder.HierarchicalSharedEncoder
   
   d_model: ${model.d_model}
   
+  decoder_center:
+    _target_: model.components.Decoder
+    d_model: ${model.d_model}
+    nhead: ${model.nhead}
+    dropout: ${model.dropout}
+    activation: ${model.activation}
+    norm_first: ${model.norm_first}
+    nlayer: 4
+    ff_ratio: ${model.ff_ratio}
+
   decoder_html:
     _target_: model.components.Decoder
     d_model: ${model.d_model}
@@ -41,7 +51,8 @@ model:
   vocab_size_html: -1
   vocab_size_bbox: -1
 
-  max_seq_len: -1
+  max_seq_len_html: -1
+  max_seq_len_bbox: -1
 
   padding_idx: -1
 

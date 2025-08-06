@@ -124,7 +124,7 @@ def main(cfg: DictConfig):
             torch.load(cfg.trainer.vqvae_weights, map_location="cpu")
         )
 
-    elif model_name == "SharedEncoder_DualDecoder":
+    elif (model_name == "SharedEncoder_DualDecoder") or (model_name == 'HierarchicalSharedEncoder'):
         max_seq_len_html = max(# ✅
             (cfg.trainer.img_size[0] // cfg.model.backbone_downsampling_factor)
             * (cfg.trainer.img_size[1] // cfg.model.backbone_downsampling_factor),
@@ -149,8 +149,13 @@ def main(cfg: DictConfig):
             
             # Use maximum sequence length for shared position embedding
             max_seq_len=max_seq_len,
+            max_seq_len_html=max_seq_len_html,
+            max_seq_len_bbox=max_seq_len_bbox,
         )
         
+
+
+
 
 
     log.info(
